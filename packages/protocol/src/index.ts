@@ -3,10 +3,12 @@
 // worker and the web app both import it directly as TypeScript.
 
 import type { AgentProfile } from "./agents.ts";
+import type { YourApp } from "./apps.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
+import type { OutsideConnection } from "./outside.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
@@ -78,7 +80,7 @@ export type {
   YourAssistantChanges,
 } from "./assistant.ts";
 // And the rest of huddles.ts, from "@ember/protocol/huddles", which only the Huddles card, its setup and the Worker's huddles use.
-export type { HuddlesField, HuddlesForgotten, HuddlesSaved, HuddlesSettings, HuddlesSetup, LiveHuddle } from "./huddles.ts";
+export type { HuddleRelayField, HuddleRelaySetup, HuddlesField, HuddlesForgotten, HuddlesSaved, HuddlesSettings, HuddlesSetup, LiveHuddle } from "./huddles.ts";
 export {
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
@@ -103,6 +105,7 @@ export {
   type Upload,
 } from "./files.ts";
 export {
+  APP_SIGNED_IN_PATH,
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
   EMAIL_SIGN_UP_PATH,
@@ -208,9 +211,18 @@ export interface DirectoryUser extends User {
    * once it's deleted, as its answers stay. Left out for anyone else.
    */
   agent?: true;
+  /**
+   * Whether they're an AI agent only administrators can ask, as Admin access on its page sets it, which
+   * nobody else is offered to mention or to write to. Left out for anyone else. One only administrators'
+   * direct messages reach is listed to administrators alone.
+   */
+  adminsOnly?: true;
 }
 
-/** What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too. */
+/**
+ * What `GET /api/users` answers: everyone in the workspace, deactivated, banned and suspended people too,
+ * but, for anyone who isn't an administrator, the AI agents only administrators' direct messages reach.
+ */
 export interface Directory {
   users: DirectoryUser[];
 }
@@ -291,8 +303,8 @@ export interface Favorites {
 /**
  * What `GET /api/sidebar` answers: the rooms someone is in, in the order they were made, the ones
  * they've starred, the invitation, when they're an administrator in its room who hasn't dismissed the
- * card, the people suggested for DMs, and the huddles going on in their rooms. It comes with an ETag,
- * and a request whose If-None-Match names it gets 304 Not Modified instead.
+ * card, and the huddles going on in their rooms. It comes with an ETag, and a request whose
+ * If-None-Match names it gets 304 Not Modified instead.
  */
 export interface Sidebar {
   rooms: SidebarRoom[];
@@ -304,24 +316,9 @@ export interface Sidebar {
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
-  /**
-   * People to start a DM with: the active people with the oldest accounts who share no DM with this
-   * person, never them nor a bot or AI agent, as many as `suggestedCount` says.
-   */
-  suggestions: User[];
   /** The huddle going on in each of `rooms` that has one, by the room's id. `room.huddle` frames keep it current. */
   huddles: Record<RoomId, LiveHuddle>;
 }
-
-/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
-export const SUGGESTED_PEOPLE = 20;
-
-/**
- * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
- * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
- * only a DM with themselves and 17 with a DM with one other person.
- */
-export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
 
 /**
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
@@ -334,7 +331,7 @@ export interface RoomPerson extends User {
   member: boolean;
 }
 
-/** What `GET /api/rooms/new` answers for the New room forms: everyone active, by name. */
+/** What `GET /api/rooms/new` answers for the New room forms: everyone active who can be put in a room, by name (`RoomSettings.people`). */
 export interface NewRoomForm {
   people: User[];
 }
@@ -357,7 +354,7 @@ export interface RoomSettings {
   room: SharedRoom;
   /** Whether you can change the room, as administrators and its creator can. Others see it read-only. */
   canAdminister: boolean;
-  /** Everyone active, by name. */
+  /** Everyone active who can be put in a room, by name: all but the AI agents only administrators' direct messages reach. */
   people: RoomPerson[];
 }
 
@@ -444,9 +441,9 @@ export interface Account {
    */
   openSignUp: boolean;
   /**
-   * Whether the members of the deployment's Memberful site join, and sign in, with their Memberful
-   * account, which an administrator turns on in Membership as Memberful. Off until one does. Members who
-   * joined with it keep signing in with it once it's off, while the deployment has its keys.
+   * Whether the members of Ember's Memberful site join, and sign in, with their Memberful account, which
+   * an administrator turns on in Membership as Memberful. Off until one does. Members who joined with it
+   * keep signing in with it once it's off, while Ember has the site's keys.
    */
   memberfulJoin: boolean;
   /**
@@ -480,6 +477,16 @@ export interface Account {
    * does, when no room's header has a huddle button.
    */
   huddles: boolean;
+  /**
+   * Whether people may turn their camera on in a huddle, as the Huddles tab's Cameras switch says. On
+   * until an administrator turns it off, which keeps huddles to voices.
+   */
+  huddleCameras: boolean;
+  /**
+   * Whether people may share their screen in a huddle, as the Huddles tab's Screen sharing switch says.
+   * On until an administrator turns it off.
+   */
+  huddleScreens: boolean;
 }
 
 /** What `GET /api/account` answers for workspace settings. */
@@ -495,16 +502,29 @@ export interface WorkspaceSettings {
   canAdminister: boolean;
   /**
    * The address of the Memberful site whose members can sign in, such as https://example.memberful.com,
-   * once the deployment has the keys of its custom app (`MEMBERFUL_URL` and the rest), or null while it
+   * once Ember has the keys of its custom app, as `memberfulKeys` says where from, or null while it
    * hasn't, when Memberful can't be turned on.
    */
   memberfulSite: string | null;
   /**
-   * Whether the deployment also has what Memberful's webhooks take, their signing secret and the custom
-   * app's API key (`MEMBERFUL_WEBHOOK_SECRET` and `MEMBERFUL_API_KEY`), so that Ember hears when a
-   * membership lapses or is renewed, and checks what it hears with Memberful.
+   * Whether Ember also has what Memberful's webhooks take, their signing secret and the custom app's API
+   * key, so that it hears when a membership lapses or is renewed, and checks what it hears with Memberful:
+   * always with the keys an administrator gave, and with the deployment's while it has
+   * `MEMBERFUL_WEBHOOK_SECRET` and `MEMBERFUL_API_KEY`.
    */
   memberfulWebhooks: boolean;
+  /**
+   * Where Memberful's keys come from, as Membership's Memberful card says: the deployment's secrets
+   * (`MEMBERFUL_URL` and the rest), which take the place of any others, the ones an administrator gave
+   * Ember in Set up Memberful, or null while it has neither.
+   */
+  memberfulKeys: "secret" | "saved" | null;
+  /**
+   * The Memberful site Set up Memberful keeps, for administrators, since people here sign in with their
+   * accounts at it, which are linked to them by that site and their member id there, or null while nobody
+   * does, or for anyone else, or while the deployment's secrets give Memberful's keys.
+   */
+  memberfulSiteKept: string | null;
   /**
    * Where the keys of the Cloudflare Turnstile widget come from that checks whoever signs up, or asks
    * Ember to email them, is a person, as Membership's Turnstile card says: the deployment's secrets
@@ -525,6 +545,8 @@ export interface WorkspaceSettings {
   assistant: AssistantSettings | null;
   /** Huddles as the Huddles tab's card shows them, for administrators while they're on, and null otherwise. */
   huddles: HuddlesSettings | null;
+  /** Whether AI apps, such as Claude, may connect to Ember, as the AI assistant tab's Outside AI card shows administrators, and false for anyone else. */
+  outsideAi: boolean;
   /**
    * The ID of the Cloudflare account Ember is deployed to, which Set up Ember AI fills in, for
    * administrators once the deploy has given it to the Worker, and null otherwise.
@@ -723,14 +745,16 @@ export interface AccountChanges {
 
 /**
  * The workspace's settings that workspace settings' switches change, the ways to join among them: the
- * join link's switch, Open, Memberful, its Members only, which the Worker turns on only with the
- * deployment's Memberful keys, and Email domain, which it turns on only with a domain to let in, while
+ * join link's switch, Open, Memberful, its Members only, which the Worker turns on only once Ember has
+ * Memberful's keys, and Email domain, which it turns on only with a domain to let in, while
  * Ember can send email. Members only turns Memberful on with it, turning Memberful off turns it off, and
  * it's never on together with Open.
  */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  huddleCameras?: boolean;
+  huddleScreens?: boolean;
   joinLink?: boolean;
   openSignUp?: boolean;
   memberfulJoin?: boolean;
@@ -917,12 +941,16 @@ export interface Profile {
   /**
    * Where you stand with Memberful (`MemberfulStatus`): the account at the Memberful site you've connected
    * your account to, which you can sign in with then, or none yet while Memberful is members only. Null
-   * when there's nothing to show: while the deployment lacks Memberful's keys, for a guest, who has
+   * when there's nothing to show: while Ember lacks Memberful's keys, for a guest, who has
    * nothing to connect, or while Memberful isn't members only and you haven't connected one.
    */
   memberful: MemberfulStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
+  /** The connected apps you can sign in to yourself, by name, each with your sign-in to it, if you've made one: none while Ember AI is off, or for a guest. */
+  apps: YourApp[];
+  /** The AI apps connected to Ember as you, newest first, or null when none can be: while an administrator hasn't let AI apps connect, or for a guest. */
+  outsideAi: OutsideConnection[] | null;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -981,8 +1009,8 @@ export interface Bootstrap {
   /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */
   guestSignIn: boolean;
   /**
-   * Whether the sign-in page offers Sign in with Memberful, once the deployment has the keys of its
-   * Memberful site's custom app: while Memberful lets that site's members join, or while anyone here signs
+   * Whether the sign-in page offers Sign in with Memberful, once Ember has the keys of its Memberful
+   * site's custom app: while Memberful lets that site's members join, or while anyone here signs
    * in with an account there, as members who joined with it keep doing once it's off.
    */
   signInWithMemberful: boolean;
@@ -1327,7 +1355,10 @@ export interface MemberfulConnection {
  * what that page then says.
  */
 export const MEMBERFUL_SIGN_IN_PROBLEMS = {
-  /** Memberful sent the browser back without a sign-in, or with one this browser didn't start, or didn't answer as it should. */
+  /**
+   * Memberful sent the browser back without a sign-in, or with one this browser didn't start, or didn't
+   * answer as it should, or an administrator gave Ember another site's keys while it signed in.
+   */
   failed: "Signing in with Memberful didn't work. Try again.",
   /** The Memberful account has no active subscription, nor the all access pass. */
   membership: "Your Memberful account has no active membership.",
@@ -1344,7 +1375,7 @@ export const MEMBERFUL_SIGN_IN_PROBLEMS = {
   off: "Joining with Memberful is off.",
   /** Someone connected their account to one at Memberful once Memberful stopped being members only, when their password signs them in. */
   unneeded: "Memberful isn't members only anymore, so there's nothing to connect. Your password signs you in.",
-  /** It's on, but the deployment has no Memberful keys. */
+  /** It's on, but Ember has no Memberful keys, neither the deployment's nor any an administrator gave. */
   unavailable: "Memberful sign-in isn't set up. Ask an administrator for help.",
   /** Too many sign-ins from the address, or the account was removed or banned, which this doesn't tell apart. */
   refused: SIGN_IN_REFUSED,
@@ -1676,9 +1707,15 @@ export type WorkspaceServerFrame =
   | { type: "room.read"; roomId: RoomId }
   /**
    * Someone changed, as the people directory now lists them: they changed their profile, or an
-   * administrator gave them another role, removed them, banned them or lifted their ban. Sent to everyone.
+   * administrator gave them another role, removed them, banned them or lifted their ban. Sent to everyone,
+   * but of an AI agent only administrators' direct messages reach, which only administrators hear.
    */
   | { type: "user.updated"; user: DirectoryUser }
+  /**
+   * An AI agent the people directory no longer lists to them, as an administrator has kept it to
+   * administrators' direct messages. Sent to everyone but administrators.
+   */
+  | { type: "user.gone"; userId: UserId }
   /**
    * A room of theirs as it is now, sent to everyone in it when it's made, renamed, given another icon,
    * opened to everyone or made private, and to whoever a change puts in it, and to everyone in a DM
@@ -1697,6 +1734,15 @@ export type WorkspaceServerFrame =
    * the huddle or not, as people join it and leave, and to whoever a change puts in a room with one going on.
    */
   | { type: "room.huddle"; roomId: RoomId; huddle: LiveHuddle | null }
+  /**
+   * Someone in the huddle of a room of theirs, `by`, invites them into it, which rings in every tab they
+   * have open, for them to join from or decline, until they answer it in one, the huddle is over, or
+   * half a minute has passed. Sent only to the people invited, each of whom is in the room and hears
+   * its @mentions of them or more.
+   */
+  | { type: "huddle.invited"; roomId: RoomId; by: UserId }
+  /** They've answered an invitation into a room's huddle, joining from it or declining it, in this tab or another, so it rings in none of them from now on. */
+  | { type: "huddle.answered"; roomId: RoomId }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
   /** They've given a room of theirs another notification level, in this tab or another. */
@@ -2035,6 +2081,8 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  huddleCameras: "Cameras",
+  huddleScreens: "Screen sharing",
   joinLink: "Join link",
   openSignUp: "Open",
   memberfulJoin: "Memberful",

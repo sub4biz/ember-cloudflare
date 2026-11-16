@@ -23,6 +23,7 @@ account, as [Deploying](#deploying) describes.
   - [Ember AI](#ember-ai)
   - [AI agents](#ai-agents)
   - [Apps](#apps)
+  - [Outside AI](#outside-ai)
   - [Huddles](#huddles)
   - [A preview from GitHub Actions](#a-preview-from-github-actions)
   - [A demo from GitHub Actions](#a-demo-from-github-actions)
@@ -134,10 +135,13 @@ The workflow looks for a newer release every Monday, or when you run it from the
 Ember, then Run workflow), and opens a pull request, "Update Ember to v1.2.3", that links to what's
 new. It brings releases alone, never a beta unless you ask for one, as [Betas](#betas) says. Merging
 it deploys the update, as every push to `main` does, and that's all: each room's and the
-workspace's tables bring themselves up to date the first time they open. Closing it instead turns that
-release down until the next, whose pull request brings its changes too. Workers Builds builds each
-pull request's branch as a Preview, and the pull request shows whether it built; that's all a Preview
-is for, since `wrangler.jsonc` gives Previews none of Ember's bindings and no address.
+workspace's tables bring themselves up to date the first time they open. A page left open goes on
+running the Ember it loaded, so within a minute of the deploy while it's shown, or as it's shown
+again, it says **Ember has been updated**, with **Reload** to load the update. Closing the pull request
+instead turns that release down until the next, whose pull request brings its changes too. Workers
+Builds builds each pull request's branch as a Preview, and the pull request shows whether it built;
+that's all a Preview is for, since `wrangler.jsonc` gives Previews none of Ember's bindings and no
+address.
 
 Ember tells its administrators too: while a newer release is out, Admin on the rail has a dot, and
 General, in Community settings, names the release, with its notes and how to update. For a copy the
@@ -386,35 +390,50 @@ Preview workflow passes repository secrets of the same names through.
 
 The members of a [Memberful](https://memberful.com) site can join and sign in with their Memberful
 accounts instead of passwords. It's off until an administrator turns it on under Memberful in
-Workspace settings, which walks them through it:
+Membership, which the first time opens Set up Memberful, with three steps:
 
-1. In Memberful, under Settings, Custom applications, add an app with Include OAuth tokens with
-   this application checked, choose Server-side, and give it the OAuth redirect URL
-   `https://<Ember's address>/auth/memberful/callback`. Leave Memberful's automatic sign-in off,
-   since it skips the check that ties a sign-in to the browser that started it.
-2. Give the Worker the app's keys as secrets: `MEMBERFUL_URL`, the site's address, such as
-   `https://example.memberful.com`, and the app's OAuth identifier and client secret as
-   `MEMBERFUL_CLIENT_ID` and `MEMBERFUL_CLIENT_SECRET`. Each command asks for its value:
+1. The site's address, the one in the browser while you're signed in to Memberful's admin, such as
+   `yoursite.memberful.com`, or the site's name alone, `yoursite`. Either way Ember keeps it as
+   `https://yoursite.memberful.com`, the site a `MEMBERFUL_URL` of that address names, so members
+   linked at one are linked at the other.
+2. A custom app, a new one for Ember, since its redirect URL must point at Ember. Once an address at
+   memberful.com is given, the step links to Memberful's form for one, since Settings in Memberful's
+   sidebar opens the account's profile. Name it Ember, check Include OAuth tokens with this
+   application, choose Server-side Application, even for a site with a mobile app, since Ember's
+   server handles the sign-in, and give it the OAuth Redirect URL the step shows,
+   `https://<Ember's address>/auth/memberful/callback`, with a button that copies it. Saving it opens
+   the app's page, whose API Key, OAuth Identifier and OAuth Secret go into the step in that order.
+   Leave Memberful's automatic sign-in off, since it skips the check that ties a sign-in to the
+   browser that started it.
+3. A webhook, which is separate from the app: under Settings → Webhooks → Create webhook, which the
+   step links to as well, name it Ember, give it `https://<Ember's address>/webhooks/memberful` as the
+   Endpoint URL, which the step copies too, and select every event under Member, Order, Subscription
+   and Plan. Download isn't needed. Then copy the secret key Memberful gives it into the step. With
+   it, a member whose membership ends is signed out at once, rather than at Ember's daily check.
 
-   ```sh
-   pnpm exec wrangler secret put MEMBERFUL_URL      # add --name <worker> for a Worker not named in wrangler.jsonc
-   pnpm exec wrangler secret put MEMBERFUL_CLIENT_ID
-   pnpm exec wrangler secret put MEMBERFUL_CLIENT_SECRET
-   ```
+Ember tries the API Key on Memberful's admin API, and asks its token endpoint whether it knows the app
+by its OAuth Identifier and Secret, before it keeps them, saying on the field what Memberful didn't
+take, then turns Memberful on. It keeps the three secrets in the workspace's settings, encrypted as a
+Resend API key is, never shows them again, and can't read them once `SESSION_SECRET` changes, until
+an administrator gives them again. Change keys, under Memberful while it's on, asks for them all again.
+Nothing needs a Worker secret or a deploy.
 
-   Or add them under the Worker's Settings, Variables and Secrets in the Cloudflare dashboard, as the
-   type Secret, since a deploy takes away plain text ones. `pnpm run deploy` uploads them too when its
-   environment has them, so the Preview workflow passes repository secrets of the same names through.
-3. So that a member whose membership lapses is signed out, not only kept from signing in again, add
-   a webhook in Memberful under Settings, Webhooks that sends the member, subscription and order
-   events to `https://<Ember's address>/webhooks/memberful`, and give the Worker the webhook's secret
-   key and the app's API key, as the step above does the others:
+A Worker can have the keys as secrets instead, which take the place of any given in Set up Memberful,
+all of them together, and Membership's card then says so: `MEMBERFUL_URL`, the site's address,
+`MEMBERFUL_CLIENT_ID` and `MEMBERFUL_CLIENT_SECRET`, the app's OAuth identifier and secret, and for
+the webhook, `MEMBERFUL_WEBHOOK_SECRET` and `MEMBERFUL_API_KEY`. Each command asks for its value:
 
-   ```sh
-   pnpm exec wrangler secret put MEMBERFUL_WEBHOOK_SECRET
-   pnpm exec wrangler secret put MEMBERFUL_API_KEY
-   ```
-4. Turn on Memberful in Workspace settings.
+```sh
+pnpm exec wrangler secret put MEMBERFUL_URL      # add --name <worker> for a Worker not named in wrangler.jsonc
+pnpm exec wrangler secret put MEMBERFUL_CLIENT_ID
+pnpm exec wrangler secret put MEMBERFUL_CLIENT_SECRET
+pnpm exec wrangler secret put MEMBERFUL_WEBHOOK_SECRET
+pnpm exec wrangler secret put MEMBERFUL_API_KEY
+```
+
+Or add them under the Worker's Settings, Variables and Secrets in the Cloudflare dashboard, as the type
+Secret, since a deploy takes away plain text ones. `pnpm run deploy` uploads them too when its
+environment has them, so the Preview workflow passes repository secrets of the same names through.
 
 While it's on, the sign-in page offers Member? Sign in with Memberful under its form. Someone with an
 active subscription, or the all access pass, signs in as the person their Memberful account is
@@ -422,10 +441,11 @@ linked to, or else joins as a new member, in every open room, and everyone else 
 as before. Accounts are linked by the Memberful site and the member's id there, never by email
 address, since Memberful lets anyone register an address without proving it's theirs: someone new
 whose Memberful email address someone here has already is turned away, and asked to sign in with
-their password. The site is `MEMBERFUL_URL`'s address, so keep it once people have signed in: at
-another address, even the same site's, every member would be someone new. Turning Memberful off
-stops anyone new joining with it, but whoever signed in with it has no password, so they keep
-signing in with it, and the sign-in page keeps offering it, while the Worker has the keys.
+their password. At another address, even the same site's, every member would be someone new, so
+once anyone has signed in with Memberful, Set up Memberful keeps the site, asking only for its keys,
+and a `MEMBERFUL_URL` should keep it too. Turning Memberful off stops anyone new joining with it, but
+whoever signed in with it has no password, so they keep signing in with it, and the sign-in page
+keeps offering it, while Ember has the keys.
 
 Members only, under Memberful, keeps Ember to the site's members: the sign-in page offers Sign in
 with Memberful in place of its form, Open, the join link and signing in with just a name are off,
@@ -449,11 +469,11 @@ add one first. Once disconnected, a member signing in with their password is ask
 again.
 
 Someone who joined with Memberful has no password, and while Memberful signs them in, as it does
-while the Worker has the keys to the site they're linked at, they aren't given one: their profile
+while Ember has the keys to the site they're linked at, they aren't given one: their profile
 offers none, and the Worker refuses one. Memberful is their way in, and a password would be another
 that holding their session was enough to make. Their Memberful account stays connected, since
-they'd have no other way in. Should the Worker lose the keys, or `MEMBERFUL_URL` change, Memberful
-no longer signs them in: an administrator's sign-in link lets them in, and their profile offers a
+they'd have no other way in. Should Ember lose the keys, or `MEMBERFUL_URL` change, Memberful no
+longer signs them in: an administrator's sign-in link lets them in, and their profile offers a
 first password then, which keeps their Memberful account connected for when it signs them in again.
 
 A member whose membership lapses can't sign in with Memberful again. With the webhook, they're suspended too: their
@@ -462,10 +482,13 @@ rooms, private ones too, messages and role stay, and they're back as they were o
 they sign in. Making an open room private leaves them out of it, as it does anyone not chosen. A
 webhook only tells Ember whom to ask about: Memberful sends them in no particular order, so the
 Workspace asks Memberful's API what that member's membership is now, and asks about everyone linked
-once a day too, in case one never came. Administrators, and the people they invite, who need no
-membership, are never suspended. Administrators see suspended members dimmed in Workspace settings,
-where they can remove them, and everyone else sees them as removed. All of this goes on whether
-Memberful is on or not, since its members keep signing in with it once it's off.
+once a day too, in case one never came. Ember answers every event it's sent with 200 once its
+signature checks out, one about a plan, a download or nothing it knows of too, since Memberful tries
+again for a day whatever fails, then deletes the webhook if it's still failing three days later.
+Administrators, and the people they invite, who need no membership, are never suspended.
+Administrators see suspended members dimmed in Workspace settings, where they can remove them, and
+everyone else sees them as removed. All of this goes on whether Memberful is on or not, since its
+members keep signing in with it once it's off.
 
 ### Sending email
 
@@ -689,8 +712,8 @@ has, and they share the answer's limit of tokens, so a model that spends them al
 short as any other answer is. Claude, GPT and Grok, the models the models file lists, are given the
 search, with nothing to turn on; Workers AI's models aren't, nor is a model kept from before Ember
 offered its own, or a test question, and a model that stops taking the tool is asked
-again without it: one refused only once it has searched answers without it in the tokens, and with the
-web searches and pages, the answer has left. Each call has the model read the conversation again, so an answer that searches costs
+again without it: one refused only once it has searched answers without it, told what its searches
+found, in the tokens, and with the web searches and pages, the answer has left. Each call has the model read the conversation again, so an answer that searches costs
 that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
 above has it, since the card and the preview are only of addresses in the messages @ember read with
 the question.
@@ -801,8 +824,23 @@ agent's page, which changes it. The page sets up:
   longer offers keeps it, marked so in the menu, until it's saved with another.
 - **Search the web**, as @ember's does, for every model Ember offers. Turned on for a model kept from
   before that can't search, it says in red that the model can't, until the model or the switch changes.
-- **Rooms**: every room open to everyone, new ones too, as @ember is, or only the open rooms chosen.
-  People can still add it to a closed room or DM it, as they can anyone.
+- **Rooms**: Every room, which is every room open to everyone, new ones too, as @ember is, or only the
+  open rooms chosen. People can still add it to a closed room or DM it, as they can anyone.
+- **Admin access**, two switches, both off for an agent anyone can ask:
+  - **Admins only** leaves the agent in its rooms, where everyone reads what it answers, but it answers
+    administrators alone. A mention or a DM from anyone else gets no answer, the mention prompt and New
+    direct message don't offer it to them, and its profile tells them that only administrators can ask
+    it.
+  - **Only available in admin DMs** takes the agent out of every room, private ones too, keeps it out
+    of them, and holds Admins only on. Nobody else can see it: their people directory, mention prompt
+    and Available Agents don't list it, and its profile and avatar aren't there for them. Only an
+    administrator can start a DM with it, and it answers there while everyone else in the DM is an
+    administrator. A DM started with it and anyone else, a member, a bot, whose key reads the rooms
+    it's in, or another agent, is started without it.
+
+  Whoever becomes an administrator can ask these agents from then on, and no longer once they aren't
+  one. A DM someone had with an agent before it was kept for administrators stays theirs to read, and
+  the agent answers nothing more in it.
 
 Try it asks the agent a question as the page sets it up, before anyone saves, and shows the answer as
 the agent's message would, with how long it took, to nobody else. Create agent, and Save changes when
@@ -824,6 +862,13 @@ messages, deleted agents' too, on a DM with it alone in the sidebar and the room
 mention prompt and New direct message, and on its profile. The profile shows everyone what the agent
 does, the model it answers with, where that runs (Cloudflare's Workers AI, or the company that makes
 the model, which AI Gateway sends what it's asked to), and who set it up, but not its instructions.
+
+Available Agents, under the DMs in everyone's sidebar while Ember AI is on, says how many agents they
+can ask, @ember among them, and opens the list of them: each agent's picture, the @name that summons
+it, which a click copies, what it does, the rooms it shares with whoever is looking, each a link to the
+room, and a button that starts a DM with it. People who aren't administrators are listed only the
+agents anyone can ask. Administrators are listed the ones kept for them too, marked Admins only or
+Admin DMs only, with a link to each agent's page and to New agent.
 
 #### What Ember adds around the instructions
 
@@ -870,11 +915,11 @@ often ends in `/mcp`, and a token, if the server takes one. Ember asks the serve
 over Streamable HTTP, and connects the app only once it has answered, so a wrong address or token is
 said on its field, in words about what the server did: it asked for a sign-in, didn't take the token,
 has no MCP server there, sent the address on to another, took longer than 20 seconds, or answered
-with more than 4 MB.
+with more than 4 MB. A server that asks for a sign-in is connected by [signing in to it](#signing-in-to-an-app).
 
-This release connects apps, reads their tools, and has an administrator pick the tools each agent may
-use. Agents can't call them yet, and a server that signs people in with OAuth can't be connected, only
-one that takes a token or nothing.
+An administrator picks the tools each agent may use, and an agent calls one only once someone allows
+that call, on a card in the room, unless the administrator has that agent's calls of the tool always
+allowed.
 
 - **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
   name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
@@ -889,8 +934,8 @@ one that takes a token or nothing.
   letters, digits, `_`, `-` and `.`, a description up to 1,500 characters and a schema of what it takes
   up to 8,000, and the page says how many more the server has. **Read its tools again** asks the
   server again, and leaves the app as it was if the server doesn't answer.
-- **Remove app** forgets the app, its token and its tools. Up to 10 apps can be connected, and they're
-  kept while Ember AI is off.
+- **Remove app** forgets the app, its token or sign-in, and its tools. Up to 10 apps can be connected,
+  and they're kept while Ember AI is off.
 - **An agent's tools** are picked on its page, and @ember's on its own, in the **Tools** card: every
   connected app's tools, by app, each with a checkbox, up to 20 an agent. A pick is saved as it's made.
   An agent is given nothing that isn't picked for it, and anyone who can ask the agent could have it
@@ -898,38 +943,297 @@ one that takes a token or nothing.
   keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
   and the server describes one another way, in its name, title, description or what it takes, that
   tool is set aside for every agent that had it, and its page says so, until an administrator picks it
-  again. A pick is of the tool as the page showed it, so one made on a page that loaded before the
+  again. One its server describes as it did again, before that agent's picks are next saved, comes
+  back by itself, as it's the tool that was picked. A pick is of the tool as the page showed it, so one made on a page that loaded before the
   tool changed is refused, and the page shows the tools as they are now. Removing an app takes its
   tools from every agent.
+- **A tool set aside** is flagged where an administrator looks: the Apps card says on the app's row
+  how many of its picked tools are set aside, and the app's page names each, with the agents that had
+  it, linked to their pages, and whether the server changed it or no longer has it. Ember also finds
+  a change as it goes to call a tool: it then reads the app's tools again, so the tool is set aside
+  from that call on, without waiting for an administrator to read them. An app whose server has
+  come to have no tools Ember can use keeps none, which its page and the agents' say.
+- **A call** is the model's to ask for and a person's to allow. Claude, GPT and Grok, which can
+  search their room, are given an agent's picked tools beside that search, each named for its app and
+  described in the app's own words, marked as the app's; Workers AI's models aren't given them. It never has an app's address or token: it names a tool
+  and what to call it with, and Ember posts a card in the room, where the answer would go, saying
+  which agent wants to use which app, the tool, and everything it would be called with, as JSON.
+  **Allow once** runs that call and no other, and **Deny** tells the model it wasn't allowed; either
+  is for whoever asked the agent or an administrator, and the card then says who answered. The answer
+  goes on from there, and waits again at the next call, up to five calls an answer. A model whose
+  provider then won't go on from a call is asked once more without the tools, told what each call came
+  to, so that its answer still says what a call did. A call nobody
+  answers in 15 minutes isn't run: its card says so in place of its buttons, and Ember forgets the
+  answer that waited. A call with more than 3,000 characters to show is never asked for,
+  so nobody allows what they couldn't read. As it runs a call, Ember asks the server for the tool
+  again, and doesn't call one that's no longer picked for the agent or that the server describes
+  another way than when it was picked. What the tool answers goes to the model as text, cut at 8,000
+  characters, and is the app's word: Ember passes on no pictures or files from it.
+- **A tool's card** is the app's own. A server built for Slack's assistant can answer a call with
+  [Block Kit](https://docs.slack.dev/ai/slackbot-mcp-client/returning-rich-responses) beside its
+  text, in `_meta.slack.blocks`, and Ember tells every server it takes that, by the name Slack's
+  client gives it (`io.slack/block-kit`). The room is shown those blocks as a card from the agent,
+  before its answer, ending in a line that says which app and tool it's from, and the model is told
+  the room has seen it. Ember shows such a card whole or not at all, as Slack does: one with more
+  than 50 blocks, or with a block Ember doesn't draw (a field to type in, a menu, a data table, a
+  chart, a container, a file), isn't shown, and the agent answers from the tool's text, as it does for
+  a server that sends no card. Its pictures are fetched by each reader's app from the addresses the
+  server gave, as a bot's card's are.
+- **A button on a tool's card** calls a tool when its `action_id` is `tool:` and the tool's name, with
+  the JSON object its `value` writes, as Slack has it. Ember keeps such a button only for a tool of
+  the same app that's picked for the agent, and drops any other button that isn't a link. Anyone in
+  the room can click it, and the click is its own leave: nobody is asked first, as the call is the
+  one the app's card offered, not one a model wrote, and it goes to no model. The card the tool
+  answers with takes the clicked one's place, saying who clicked which button, and what a tool only
+  says is posted beside the card. A call that fails tells whoever clicked why, in the server's words,
+  cut short. One click is answered at a time on a card. Agents' own answers still get no buttons
+  that act.
+- **Always allow** is an administrator's, for one agent and one tool: a box under each picked tool in
+  the agent's Tools card. That agent's calls of that tool are then made at once, with nobody asked,
+  for anyone who can ask the agent, so keep it for tools that only read, or whose every use you'd
+  allow. The room still sees each call: Ember posts a card saying which agent used which app, the
+  tool, and what it was called with, before it makes the call, and makes none it can't show, whether
+  the room wouldn't take the card or there are more than 3,000 characters to show. A call that then
+  isn't made after all, as Ember finds its server has changed the tool or can't get through to it, has its card changed to say so. Uncheck the box
+  and the tool asks first again, from the next call. It ends by itself when the tool is taken from
+  the agent, or when Ember finds its server has changed it: from then on the tool asks first, even
+  once the server describes it as it did, until you check the box again.
 
-Reading an app's tools runs in a Durable Object of its own, `AppConnector`, apart from the rooms and
+Reading an app's tools and calling one run in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none
 of a server's code runs in Ember.
 
+#### Signing in to an app
+
+Many services' MCP servers take no token you could paste: they sign you in, with OAuth, as the
+protocol has it. When a server answers Connect an app by asking for a sign-in, the token's field says
+so and offers **Sign in to** its host. Ember then finds where the server signs people in, sends your
+browser there, and connects the app once you've allowed it and the service has sent you back. The
+app's page says who signed in, and when, in place of a token.
+
+- **It's one sign-in for the app**, made by an administrator and used for every agent given the
+  app's tools, as a token is. So what an agent can do there is what the administrator who signed in
+  can, for anyone who can ask the agent: sign in as an account made for Ember where the service lets
+  you, and pick tools with that in mind. Each person can add [their own](#each-persons-own-sign-in),
+  for their direct conversation with an agent.
+- **Ember finds the sign-in from the server**, as the protocol says to: the server names its
+  authorization server, which describes itself. Ember says who it is with a document it serves at
+  `/oauth/client.json` where the authorization server reads one, and otherwise registers itself
+  there. It asks for the access the server says it needs, proves each sign-in with PKCE, and names
+  the server's address as what the tokens are for, so they're no good anywhere else.
+- **A service that does neither wants Ember registered there by you.** The form then says so, and
+  asks for a **Client ID** and a **Client secret**. Register Ember with the service as an OAuth app
+  (a "connected app" or "integration", by some services' names), giving it the **Redirect address**
+  the form shows, `https://<your Ember>/account/apps/signed-in`, as where it sends people back, and
+  type the client ID it gives you, with its secret if it gives one. Ember signs in as that client,
+  shows its ID on the app's page from then on, and keeps what the service knows it by encrypted,
+  for that app alone, never showing the secret again. Signing in again uses the same client without
+  asking, even after the sign-in has ended; type another ID, or another secret, to change it, or
+  clear the ID to have the service come to know Ember by itself. A secret the service doesn't take
+  is said once your browser is back, and changes nothing.
+- **An app that has a token can be signed in to instead.** When its server takes the token no
+  longer, saving it or reading its tools again says so and offers **Sign in to** its host. The
+  sign-in then takes the token's place. Ember signs in at the address the app is connected at, so
+  nothing is offered while the form has another: to sign in to an app somewhere else, remove it
+  and connect it there.
+- **Every address in it is checked** as the server's own is: `https` only, unless the server is one
+  you're developing on `localhost`, each looked up first and refused where it resolves to a private
+  address, with no redirect followed. An authorization server that says it's another service's, or
+  describes a sign-in for another address than the server's, is refused.
+- **You come back to Ember signed in**, at `/account/apps/signed-in`, which takes the code out of the
+  address at once. A sign-in is finished only by the administrator who began it, once, within ten
+  minutes; Ember keeps what it needs to finish it encrypted until then.
+- **The tokens are kept encrypted**, for that app alone, and never shown. An access token that's
+  about to end is replaced first, with the token the service gave for that, one request at a time,
+  so a token that's replaced as it's used is never sent twice.
+- **A sign-in ends** when the service won't give another token: it was taken back there, or the
+  service gave none to renew with. Ember then asks the server nothing: a call of its tools tells the
+  model so, the app's page and its row on the AI assistant tab say so, and **Sign in again** on the
+  app's page restores it, keeping the app and every agent's picks. A service that couldn't be reached
+  for a new token ends nothing: Ember goes on with the token it has.
+- **A server can ask for more than the sign-in allows.** When it refuses a call, or a read of its
+  tools, and names the access that would allow it (OAuth's `insufficient_scope`), the call isn't
+  run, the model is told that an administrator has to sign in again, and the app's page and its row
+  say what the server asked for. **Sign in again** then asks the service for that as well as for
+  what the sign-in had, which the service shows you before you allow it. Nothing is asked for on
+  Ember's own: more access is only ever given by an administrator, at the service.
+- **A signed-in app keeps its address** and takes no token, since its sign-in is to the server there.
+  To move it, remove it and connect it again.
+- **Removing a signed-in app takes the sign-in back at the service**, where the service says how
+  (a revocation endpoint, as RFC 7009 has it): Ember sends back the token that renews the sign-in
+  and the access token, as the client it signed in as, once the app is gone, waiting at most ten
+  seconds. The tab then says whether the service took them back. Where it didn't, couldn't be
+  reached, or doesn't say how, remove Ember's access at the service yourself. A sign-in replaced
+  by signing in again isn't taken back: the service decides what becomes of the last one.
+
+#### Each person's own sign-in
+
+Anyone but a guest can sign in themselves to an app Ember signs in to, under **Apps** on their
+profile, which lists those apps while Ember AI is on. It's the same sign-in at the same service, as
+the same client, made as them, and kept beside Ember's, sealed for that app and that person alone.
+
+- **It's used in one place:** their direct conversation with @ember or an agent, the two of them
+  alone. A call the agent makes of that app's tools there goes as them, with their sign-in.
+  Everywhere else, and for everyone who hasn't signed in themselves, calls go with the sign-in the
+  administrator made, as before.
+- **Every call as a person asks them first**, on a card that says the call goes as them. What an
+  administrator always allows an agent was said of Ember's sign-in, and doesn't cover theirs.
+- **Which tools an agent has is still the administrator's pick.** A person's sign-in changes whose
+  account a call acts as, not what the agent may call.
+- **Their sign-in ends, or wants more, for them alone.** Once it has ended, the call isn't made with
+  Ember's instead: the model says they have to sign in again, and their profile says so, with
+  **Sign in again**, or **Sign out** to go back to the shared one. When the app's server asks for
+  more access than their sign-in has, their profile says so, and signing in again asks for it.
+- **Sign out forgets it and takes it back at the service**, where the service says how, as removing
+  an app does. Removing the app forgets everyone's sign-in to it and takes back up to 20 of them
+  there too, saying it couldn't take everything back when there were more. Removing or banning
+  someone forgets theirs, without asking the service.
+
+### Outside AI
+
+An AI app, such as Claude or ChatGPT, can connect to Ember and read it as one of the people in it,
+and send messages as them if they let it. Ember is an [MCP](https://modelcontextprotocol.io) server
+for that, at `/mcp` on its own address, the other way round from [Apps](#apps), where Ember's agents
+call other services' servers. It's off until an administrator turns on **Outside AI** on the AI
+assistant tab, which is there whether or not Ember AI is on, and until then nothing about it answers:
+`/mcp`, and the addresses below, answer 404.
+
+To connect an app, someone gives it Ember's address ending in `/mcp`, which the card and their profile
+show, as a custom connector or MCP server. The app sends their browser to a page of Ember's, which
+they sign in to if they aren't, and which asks whether to connect it: it names the app, says what it
+could do as them, and says which site the browser goes back to, which is what tells whose app it is,
+since the name is only what the app calls itself. **Allow** connects it. **Don't allow** goes back
+with nothing.
+
+- **What a connected app can do** is read what the person who connected it can: list the rooms
+  they're in, read a room's messages 40 at a time and a thread's, and search for words across those
+  rooms, the ones they've hidden and their direct messages too, as their own search does. It sees
+  nothing they don't. Its tools are `list_rooms`, `read_room`, `read_thread` and `search_messages`,
+  each marked as only reading.
+- **It can send messages as them, if they let it.** The page that asks has a box for that, ticked
+  unless they clear it, and their profile says which apps can. `send_message` posts Markdown to a room
+  they're in, or as a reply in a thread, and everyone there sees it as theirs: nothing marks it as
+  sent by an app. It mentions nobody and goes to no bot, so it calls neither @ember, an agent nor a
+  bot's webhook, even in a direct message with one, and one person's apps send at most 20 messages
+  a minute between them. An app that asks for nothing by name only
+  reads.
+- **Your profile lists the apps connected as you**, under **AI apps**, with when each was connected
+  and last asked Ember anything, and **Disconnect**, which ends what that app was given at once. One
+  person has at most 20.
+- **Guests can't connect one**, as they have no account of their own to act as. Removing or banning
+  someone ends every connection of theirs.
+- **Turning Outside AI off disconnects every app**, and forgets the apps that registered, after
+  asking the administrator first. Turning it on again starts afresh.
+
+How an app signs in is OAuth 2.1, as MCP's
+[authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization) has it,
+with Ember as the authorization server:
+
+- `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server` say
+  where, and a request to `/mcp` without a token answers 401 pointing at the first.
+- An app names itself by the address of a Client ID Metadata Document, which Ember reads from a
+  public address only, or registers itself at `/oauth/register`, 10 times an hour from one address at
+  most. Either way it's a public client, with no secret, and proves itself with PKCE (S256).
+- The browser goes back only to an `https` address the app gave, or to `http` on the person's own
+  computer, at any port, for an app that runs there. An app that's opened by a scheme of its own,
+  such as `cursor://`, can't connect yet.
+- An access token lasts an hour, and a refresh token is replaced each time it's used and lasts 90 days
+  unused. Using a refresh token that was replaced, however long ago, or a code twice, ends that
+  connection, as either means it was copied. Ember keeps only a keyed digest of each, made with
+  `SESSION_SECRET`, so its database holds nothing an app could sign in with.
+- A token works only at the address the app said it was for, when it asked to connect or when it
+  exchanged its code, so one given for another Ember, or for this one at another address, is
+  refused. An app that never says is bound to none: its tokens are still only this Ember's.
+
+Requests to `/mcp` are answered in a Durable Object of their own, `OutsideAi`, apart from the rooms and
+the workspace, as an app's tools are read in `AppConnector`: reading a request and checking it takes
+more CPU time than a Worker's request gets on Workers Free. It keeps nothing, and each request has a
+new one.
+
 ### Huddles
 
-A huddle is a room's voice call, laid out as Slack's is. The headphones at the top of a room start its
-huddle, or join the one going on, and show the rest of the room how many are in it. So does the
-room's row in the sidebar, which ends with the faces of the first two people in the huddle, the
-headphones and how many are in it, and says who they are under a pointer. Starting or joining goes by
-a preview, which asks the browser for a microphone and offers a choice of it and, where the browser
-has one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
-the window's base follows you from page to page, with the microphone's switch and Leave. A sound
-plays as someone joins the huddle, yourself included, and another as someone leaves it. While you're
-the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you find
-yourself alone until someone joins you. The two sounds were written for Ember and the music was
-generated for it by Google's AI, so nothing is owed for playing them, and
+A huddle is a room's call, by voice, by camera and by the screens people share, laid out as Slack's
+is. The headphones at the top of a room start its huddle, or join the one going on, and show the rest
+of the room how many are in it. So does the room's row in the sidebar, which ends with the faces of
+the first two people in the huddle, the headphones and how many are in it, and says who they are
+under a pointer. Starting or joining goes by a preview, which asks the browser for a microphone and
+offers a choice of it and, where the browser has one, of the speaker; without a microphone you join
+to listen. The preview's camera switch turns your camera on, which asks the browser for one only
+then, shows you its picture and offers a choice of camera.
+
+The huddle opens as you join it, over the page beside the sidebar, or over all of a phone's: a tile
+for each person, with their camera's picture, or their avatar while it's off, their name, and a mark
+while they're muted, as large as shows everyone in the window, and the microphone, the camera, the
+screen and Leave along its base. Where the huddle is beside the sidebar, as on a computer, an arrow
+beside the microphone opens a menu of the microphones to speak through and, where the browser can
+choose one, the speakers to play the huddle through, and an arrow beside the camera a menu of the
+cameras. The huddle changes to the one chosen without leaving, as muted as it was, and this
+browser's next huddle starts with it. Someone who joined to listen can take up a microphone there,
+and choosing a camera while yours is off turns it on. Minimizing it, or going to any page, leaves a
+bar along the window's base, which follows you from page to page with the microphone, the camera,
+the screen, the button that opens the huddle again, and Leave; a phone's bar has the microphone and
+Leave, and opens the huddle at its name. Whoever is speaking has a green ring round their tile, and
+round their face on the bar. Your browser tells who by how loud each voice it plays is, and your own
+by your microphone, so nothing more is sent for it, and nobody muted shows as speaking. Cameras are
+640 by 360 at up to 500 kbps, and up to 25 can be on in a huddle at once. Chrome, Edge and the other
+browsers built on Chromium send a camera in a second size as well, 320 by 180 at up to 150 kbps, and
+a browser whose tiles are no taller than that, as with many people in the huddle, or beside a
+shared screen, is sent that size in place of the larger. Safari and Firefox send a camera in the one
+size, which everyone is sent. Your browser is sent the others' cameras only while you have the
+huddle open, and a camera's picture isn't kept in step with its person's voice, which travels apart
+from it.
+
+Share screen, beside the camera, has your browser ask which screen, window or tab to share, and
+shares it until you stop it there or in your browser. Two people can share at once, as in Slack's
+huddles, and a third is told so before their browser asks them anything. Everyone else sees a shared
+screen large, all of it, in its own shape, under whose it is, with the huddle's tiles small beside
+it, or under it, as on a phone held upright, whichever shows the screen larger. The tiles scroll by
+themselves once there are more than fit there. A second screen shows among the tiles, first of them,
+and a click on it shows it large in place of the other. Your own shows among your tiles, as the
+others see it. A screen is sent as large as 1920 by 1080, at up to 15 frames a second and 1.5 Mbps,
+without its sound, and only to those who have the huddle open: once it's minimized, its bar says
+who's sharing. A phone's browser has no screen to share, so phones watch.
+
+On a phone, where the huddle is over all of the page and has no arrows, a button beside the camera,
+Switch camera, is there while your camera is on and the browser has another. It shows the camera
+that faces the other way, as a phone's back camera does from its front one, or the next the browser
+lists where it doesn't say which way its cameras face, and this browser's next huddle starts with
+it. A phone opens one of its cameras at a time, so a huddle lets go of the camera that's on before
+it opens another, on a computer too, and opens it again when the browser won't open the other, which
+you're told. Your own picture shows as a mirror would, unless your camera faces away from you. A
+phone's browser stops a page once its screen locks, and the huddle with it, so a huddle keeps the
+screen of a phone or a tablet awake for as long as its page shows, where the browser can, which one
+may refuse while the phone saves its battery. Whatever the browser stopped while you were in another
+app, the others' voices, their pictures or the telling of who's speaking, starts again as you come
+back to the page, and a tab that lost the room meanwhile joins the huddle again by itself.
+
+A sound plays as someone joins the huddle, yourself included, and another as someone leaves it. While
+you're the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you
+find yourself alone until someone joins you. The two sounds, and an invitation's ring, were written
+for Ember and the music was generated for it by Google's AI, so nothing is owed for playing them, and
 `apps/web/src/lib/huddle-sounds/` says where each came from and how to change them.
 Ctrl+Alt+Shift+H (⌘⌥⇧H on a Mac) leaves the huddle you're in, or opens the preview for the room
 you're looking at, and Ctrl+Shift+Space (⌘⇧Space) mutes and unmutes. The arrow beside the headphones
-copies the huddle's link, which opens the room at the preview. A huddle takes up to 50 people and
-ends when the last of them leaves. A tab is in one huddle at a time, and joining a room's huddle from
-another tab or device leaves it in the first. DMs have no huddles yet, and there's no video or screen
-sharing yet.
+copies the huddle's link, which opens the room at the preview, or the huddle once you're in it. A
+huddle takes up to 50 people and ends when the last of them leaves. A tab is in one huddle at a time,
+and joining a room's huddle from another tab or device leaves it in the first.
+
+A direct message has a huddle too, with the headphones at its top and its mark on its row in the
+sidebar, when there's someone in it to huddle with, which a bot or an AI agent isn't, nor anyone who
+can no longer sign in. Starting one there invites the others in it. Wherever they have Ember open,
+an invitation shows in the window's corner, under the header, whatever page they're on: who invites
+them, over Decline and Join. It rings for half a minute, in one of a browser's tabs at a time, and
+without a sound for someone who's in a huddle already. Join opens the huddle's preview, so nobody is
+in a huddle before they've said how they join it, and answering an invitation, either way, takes it
+down in their other tabs and on their other devices. Whoever started the huddle isn't told of a
+Decline. It stops ringing by itself once the huddle is over, or once they're in it. An invitation
+reaches the people in the direct message who hear its @mentions or more, so nobody who has turned
+its notifications off, and only where Ember is open: a device with Ember closed doesn't ring yet.
+Nothing is kept of an invitation, so one that comes while someone's connection is down is lost.
 
 An administrator turns huddles on under Huddles in community settings, with the switch on its card.
 Huddles run through Cloudflare's [Realtime SFU](https://developers.cloudflare.com/realtime/sfu/),
-which carries what each person in a huddle says to the others, by an SFU app in your Cloudflare
+which carries what each person in a huddle says and shows to the others, by an SFU app in your Cloudflare
 account. Turning the card on opens Set up huddles, which has two steps: create the app under
 Realtime, Serverless SFU in the Cloudflare dashboard, which the dialog's button opens, in the
 account Ember is deployed to when the deploy gave it, then copy the app's App ID and App Secret into
@@ -941,9 +1245,36 @@ off forgets them, which ends any huddle going on within half a minute. Setting E
 huddles too: once it has made the administrator's account, Set up Ember asks whether to turn them
 on, and takes the same two steps before it opens Ember, or Not now, which leaves them to community
 settings. The secret stays in the Worker, which alone asks the SFU's API: a browser sends its
-microphone to the SFU, and hears the others from it, over WebRTC, and finds its way there with
-Cloudflare's STUN server (`stun.cloudflare.com:3478`).
+microphone, its camera and the screen it shares to the SFU, and hears and sees the others from it,
+over WebRTC, and finds its way there with Cloudflare's STUN server (`stun.cloudflare.com:3478`).
 What the SFU charges is in [What it costs](#what-it-costs).
+
+While huddles are on, the tab has a second card under the first, with a switch for each thing people
+may do in a huddle, Cameras and Screen sharing, each on until an administrator turns it off. With
+Cameras off, the preview has no camera switch and the huddle no camera button, a camera that's on
+goes off, which its person is told, and the room refuses any camera it's asked to show. With Screen
+sharing off, the huddle has no button to share a screen, a screen that's shared stops being, which
+its person is told, and the room refuses any it's asked to show. With both off, huddles are voices
+only. The room takes down whichever cameras and screens a tab left on, eight every half minute.
+Turning a switch on again gives its buttons back, and nobody's camera comes on, or screen is shared,
+by itself.
+
+Some networks, like an office's or a hotel's, block the way a browser reaches the SFU, and nobody on
+one can connect to a huddle. A third card, Relay for strict networks, gives huddles a relay for them:
+Cloudflare's [TURN service](https://developers.cloudflare.com/realtime/turn/), by a TURN key in your
+Cloudflare account. Turning the card on opens Set up the relay, which has two steps: create a TURN
+key under Realtime in the Cloudflare dashboard, which the dialog's button opens, then copy the key's
+TURN Token ID and API Token into the dialog, where the token shows as dots. Before it keeps the key,
+the Worker has Cloudflare make a relay's servers with it, which nobody is given, so a key Cloudflare
+doesn't know, or a token that isn't the key's, is refused on its field. Change key takes another's,
+and turning the card off forgets it, as turning huddles off does, while another SFU app's keys leave
+it as it is. The token is kept encrypted and stays in the Worker. As each tab joins a huddle, the
+Worker asks Cloudflare for the servers its connections go by, the relay's among them, with a name and
+a credential made for that tab, which last a day. A browser still reaches the SFU directly where it
+can, and through the relay only where its network blocks the way. Cloudflare has four seconds to
+answer, and a tab it doesn't answer for joins without the relay, which the Worker's log says. A tab
+whose connection fails once its day is over joins again, for new ones. Cloudflare doesn't charge for
+the TURN service when it's used with the Realtime SFU.
 
 ### A preview from GitHub Actions
 
@@ -1082,8 +1413,9 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
   administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
   suggests, so that one that got out could do no more than send email. A Turnstile secret key given in
-  Set up Turnstile, an API token given in Set up Ember AI, and an SFU app's secret given in Set up
-  huddles, are kept the same way.
+  Set up Turnstile, an API token given in Set up Ember AI, an SFU app's secret given in Set up
+  huddles, and a Memberful app's secret and API key and its webhook's secret key given in Set up
+  Memberful, are kept the same way.
 - A code to reset a password goes to the account's email address, so whoever reads mail there can
   take the account over, as on most sites. Nobody checks an address is its owner's when someone
   joins, unless they join with an invitation or Email domain, so someone could join with another
@@ -1097,12 +1429,16 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - The Memberful site vouches for its members, so whoever runs it can sign in here as any of them who
   have, and while Memberful is on, add new ones. Administrators keep their passwords, so the site
   being down never locks them out, though one who joined with Memberful has none, as no member does,
-  and signs in with it alone. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is
+  and signs in with it alone. A webhook whose signature the webhook's secret key doesn't check is
   refused, and even a signed one only has Ember ask Memberful's API about a member, so one forged or
   sent again changes nothing.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.
+- While [Outside AI](#outside-ai) is on, an AI app someone connects sees what they see, and writes as
+  them if they let it send, until they disconnect it on their profile, and whoever runs that app can
+  read it too. The page that asks them
+  names the site their browser goes back to, since anyone can register an app under any name.
 - `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
   recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
 
@@ -1157,7 +1493,15 @@ pages had them in October 2026:
   huddle, and nothing for what they send it. The first 1,000 GB a month are free, and it's $0.05 per GB
   after that, as its page had it in November 2026. A voice is about 50 kbps to each person who hears
   it, so five people talking for an hour are sent under half a GB between them, and the free 1,000 GB
-  carry about 2,000 such hours a month.
+  carry about 2,000 such hours a month. A camera is up to 500 kbps to each person who has the huddle
+  open, so the same five with their cameras on throughout are sent up to 4.5 GB more in the hour, and
+  the free 1,000 GB carry about 200 such hours a month. A camera from a browser that sends it in two
+  sizes is up to 150 kbps to each person whose tiles show it small, so twenty people with their
+  cameras on throughout, each in a window that shows the others small, are sent up to 26 GB in the
+  hour, where the larger size would come to 86. A shared screen is up to 1.5 Mbps to each person who
+  has the huddle open, so one shared with the other four throughout is up to 2.7 GB more in the
+  hour. Turning Cameras and Screen sharing off under Huddles keeps huddles to voices. A relay for
+  strict networks adds nothing to it: Cloudflare's TURN service is free of charge used with the SFU.
 
 Cloudflare's pages have the details: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
 [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),

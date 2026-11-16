@@ -19,12 +19,16 @@ export const NO_CALLS_LEFT = "Not run: this answer has made all the tool calls i
 /**
  * A tool Ember runs: its name, what it does and when to use it, in words its model reads, the JSON Schema
  * of the object it takes, and what a call with `input` comes to, as the model reads it. One that throws a
- * `ToolError` tells the model why; any other failure tells it only that the tool failed.
+ * `ToolError` tells the model why; any other failure tells it only that the tool failed. One that asks
+ * first runs no call until someone allows it: its answer waits at each (`resultsOf`).
  */
 export interface EmberTool {
   name: string;
   description: string;
   takes: Record<string, unknown>;
+  asksFirst?: true;
+  /** Why a call with `input` isn't one to ask anyone to allow, in words for the model, if it isn't. */
+  unaskable?(input: Record<string, unknown>): string | null;
   run(input: Record<string, unknown>): Promise<string>;
 }
 
@@ -43,6 +47,31 @@ export interface ToolResult {
   id: string;
   text: string;
   failed: boolean;
+}
+
+/** A call an answer has made: the tool's name, what the model called it with, and what the call came to, as the model read it, and whether that says it failed. */
+export interface CallMade {
+  name: string;
+  input: unknown;
+  text: string;
+  failed: boolean;
+}
+
+/** What a model that's asked again without Ember's tools reads after the conversation, before what the calls its answer made of them came to. */
+export const CALLS_MADE =
+  "(You called tools to answer this, and can't call them now. What each call came to follows, and anything a call did is done. Answer with that, and say what the calls did.)";
+
+/**
+ * What a model that's asked again without Ember's tools reads of the calls its answer `made` of them,
+ * which stand, so that it doesn't answer as if a call that did something hadn't. A call that failed
+ * says so, as Messages' `is_error` did, since an app may fail one with no word of why.
+ */
+export function whatCallsCameTo(made: readonly CallMade[]): string {
+  const each = made.map(({ name, input, text, failed }, n) => {
+    const called = typeof input === "string" ? input : JSON.stringify(input ?? {});
+    return `Call ${n + 1}: ${name} with ${called}${failed ? ", which failed" : ""}\n${text}`;
+  });
+  return [CALLS_MADE, ...each].join("\n\n");
 }
 
 /** `tools` as a request in `format` lists them. */
@@ -86,25 +115,55 @@ function isCutShort(body: Record<string, unknown>): boolean {
   return isObject(choice) && choice.finish_reason === "length";
 }
 
+/** What a model is told of a call nobody allowed. */
+export const CALL_DECLINED = "Not run: the person you're answering was asked to allow this call, and didn't. Answer without it, and say that it wasn't allowed.";
+
+/** How far a round of calls got: what each came to, in order, as far as the one that waits to be allowed, if one does, with what it's called with as an object. */
+export interface Round {
+  results: ToolResult[];
+  asks?: ToolCall & { input: Record<string, unknown> };
+}
+
 /**
- * What each of `calls` comes to, in order, run one after another: what its tool among `tools` answers,
- * or, for the model to read, that no tool has that name, that what it's called with isn't an object, why
- * its tool couldn't do it, or that it failed, which is logged. Only the first `left` are run: the rest
- * are told the answer has no calls left.
+ * What each of `calls` comes to, in order, run one after another, going on from those `before` it that
+ * are done: what its tool among `tools` answers, or, for the model to read, that no tool has that name,
+ * that what it's called with isn't an object, why its tool couldn't do it, or that it failed, which is
+ * logged. Only the first `left` are run: the rest are told the answer has no calls left. The round stops
+ * at a call of a tool that asks first, which waits to be `decided`.
  */
-export async function resultsOf(tools: readonly EmberTool[], calls: readonly ToolCall[], left: number): Promise<ToolResult[]> {
-  const results: ToolResult[] = [];
+export async function resultsOf(tools: readonly EmberTool[], calls: readonly ToolCall[], left: number, before: readonly ToolResult[] = []): Promise<Round> {
+  const results = [...before];
   for (const [index, { id, name, input }] of calls.entries()) {
+    if (index < results.length) continue;
     const refused = (text: string): ToolResult => ({ id, text, failed: true });
     const tool = tools.find((tool) => tool.name === name);
     const taken = inputOf(input);
     if (index >= left) results.push(refused(NO_CALLS_LEFT));
     else if (!tool) results.push(refused(`There's no tool called ${name}.`));
     else if (!taken) results.push(refused(`${name} takes a JSON object.`));
-    else results.push(await tool.run(taken).then((text) => ({ id, text, failed: false }), (error: unknown) => refused(whyFailed(name, error))));
+    else if (tool.asksFirst && tool.unaskable?.(taken)) results.push(refused(tool.unaskable(taken)!));
+    else if (tool.asksFirst) return { results, asks: { id, name, input: taken } };
+    else results.push(await ran(tool, id, taken));
   }
-  return results;
+  return { results };
 }
+
+/**
+ * What the call `asks`, which waited to be allowed, comes to: what its tool among `tools` answers once
+ * it's `allowed`, or that it wasn't, or that the tool is gone since.
+ */
+export async function decided(tools: readonly EmberTool[], { id, name, input }: ToolCall, allowed: boolean): Promise<ToolResult> {
+  const tool = tools.find((tool) => tool.name === name);
+  if (!allowed) return { id, text: CALL_DECLINED, failed: true };
+  return tool ? ran(tool, id, inputOf(input) ?? {}) : { id, text: `There's no tool called ${name} any more.`, failed: true };
+}
+
+/** What the call `id` of `tool` with `input` comes to. */
+const ran = (tool: EmberTool, id: string, input: Record<string, unknown>): Promise<ToolResult> =>
+  tool.run(input).then(
+    (text) => ({ id, text, failed: false }),
+    (error: unknown) => ({ id, text: whyFailed(tool.name, error), failed: true }),
+  );
 
 /** What a tool is called with, `input`, as an object, read from JSON if it's that, or null when it's no object. */
 function inputOf(input: unknown): Record<string, unknown> | null {
